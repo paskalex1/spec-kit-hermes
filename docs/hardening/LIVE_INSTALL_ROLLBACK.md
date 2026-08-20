@@ -62,7 +62,9 @@ For every target profile, record:
 - whether `spec-kit/skills-v1.json` exists;
 - every `skills/speckit-*/SKILL.md` path and SHA-256;
 - a byte-preserving archive of those managed paths when any exist;
-- hashes of protected config, memory, provider, OAuth and unrelated-skill files without copying their contents into release evidence;
+- the exact protected roots for config, memory, providers, OAuth and unrelated skills;
+- the complete recursive path set beneath every protected root, collected with `lstat` semantics without following symlinks;
+- relative path, object type, mode bits, UID and GID for every protected object, plus size and SHA-256 for every regular file and the exact link target for every symlink;
 - gateway state when the profile has a running gateway.
 
 Also record the current `specify` executable path, version and installation mechanism, or prove that it is absent.
@@ -127,7 +129,7 @@ For every target profile:
 6. Confirm all non-target profiles remain byte-identical outside their separately authorized installation step.
 7. Confirm `hermes skills list` for that exact profile shows the pinned Spec Kit skills.
 8. Start a fresh profile session and prove that an explicitly selected `speckit-*` skill is loaded from that profile rather than from another profile or stale session state.
-9. Compare protected config, memory, providers, OAuth, unrelated skills and gateway state with the pre-install inventory.
+9. Require exact structural equality with the pre-install protected inventory: the same complete path set, object types, mode bits, UID/GID, regular-file sizes and hashes, and symlink targets. Any added or removed protected path is a failure even when all surviving file hashes match.
 
 A manifest-only check, directory listing or successful `specify init` is not sufficient profile qualification.
 
@@ -171,7 +173,7 @@ The rollout is accepted only when:
 1. every frozen project-worker profile passes the per-profile gate;
 2. all manifests report the same release and identical managed-skill hashes;
 3. the cross-profile documentary chain passes;
-4. all protected pre/post hashes match;
+4. all protected pre/post inventories are structurally identical, including path sets, object types, modes, ownership, sizes, hashes and symlink targets;
 5. running gateways remain healthy or any separately authorized refresh is verified;
 6. no profile is left partially installed;
 7. the settled evidence manifest is generated after all receipts stop changing.
