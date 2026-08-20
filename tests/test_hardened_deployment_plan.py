@@ -37,6 +37,8 @@ REQUIRED_HEADINGS = (
 EXPECTED_MACHINE_CONTRACT = {
     "schema_version": 1,
     "release": {
+        "target_version": "0.16.4+hermes.2",
+        "target_tag": "v0.16.4+hermes.2",
         "superseded_tags": ["v0.16.4+hermes.1"],
         "move_or_replace_published_tags": False,
         "require_new_immutable_tag": True,
@@ -104,6 +106,7 @@ def _validate_structure(plan: str) -> None:
 
     release = _section(plan, "Release identity")
     assert "`v0.16.4+hermes.1`" in release
+    assert "`v0.16.4+hermes.2`" in release
     assert "not eligible for LIVE installation" in release
     assert "new immutable internal release" in release
     assert "instead of moving or replacing the published tag" in release

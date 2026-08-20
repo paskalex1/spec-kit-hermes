@@ -146,7 +146,7 @@ class TestHermesIntegration(SkillsIntegrationTests):
         skill_files = sorted(path for path in created if path.name == "SKILL.md")
         assert release["schema_version"] == 1
         assert release["owner"] == "spec-kit-hermes"
-        assert release["spec_kit_version"] == "0.16.4+hermes.1"
+        assert release["spec_kit_version"] == "0.16.4+hermes.2"
         assert set(release["skills"]) == {path.parent.name for path in skill_files}
         for path in skill_files:
             entry = release["skills"][path.parent.name]

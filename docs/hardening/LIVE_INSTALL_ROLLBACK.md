@@ -10,7 +10,7 @@ Skill installation is not policy enforcement by itself. The installed skills pro
 
 Install only an exact internal release from a wheel built from its immutable tagged fork commit. Record the commit, tree, tag, wheel path and wheel SHA-256 before touching any Hermes profile.
 
-The published tag `v0.16.4+hermes.1` predates the complete project-worker rollout plan in this document. It is not eligible for LIVE installation. After this correction is committed and qualified, cut a new immutable internal release instead of moving or replacing the published tag.
+The published tag `v0.16.4+hermes.1` predates the complete project-worker rollout plan in this document. It is not eligible for LIVE installation. The replacement candidate is `v0.16.4+hermes.2`; qualify it as a new immutable internal release instead of moving or replacing the published tag.
 
 Never install a branch, `main`, `HEAD`, a floating URL or a wheel whose hash differs from the settled release evidence.
 
@@ -48,6 +48,8 @@ The following block is the executable policy surface used by regression tests. N
 ```yaml
 schema_version: 1
 release:
+  target_version: 0.16.4+hermes.2
+  target_tag: v0.16.4+hermes.2
   superseded_tags:
     - v0.16.4+hermes.1
   move_or_replace_published_tags: false
