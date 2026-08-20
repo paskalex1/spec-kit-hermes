@@ -362,6 +362,13 @@ Our research and experimentation focus on:
 - [Python 3.11+](https://www.python.org/downloads/)
 - [Git](https://git-scm.com/downloads)
 
+> **Hardened Hermes integration:** installing shared Hermes skills requires
+> descriptor-relative no-follow filesystem operations (`dir_fd`,
+> `O_NOFOLLOW`, and `O_DIRECTORY`). The integration therefore fails closed
+> before writing on hosts that do not provide those primitives (including
+> current Windows Python builds). Other Spec Kit integrations retain the
+> cross-platform support listed above.
+
 If you encounter issues with an agent, please open an issue so we can refine the integration.
 
 ## 📖 Learn More

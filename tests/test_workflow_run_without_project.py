@@ -6,17 +6,23 @@ import pytest
 import yaml
 
 
+@pytest.fixture(autouse=True)
+def _enable_unsafe_workflow_compatibility(monkeypatch):
+    """Opt in only for legacy behavior tests; deny-by-default tests override this."""
+    monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW", "1")
+    monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_SHELL", "1")
+
+
 class TestWorkflowRunWithoutProject:
     """Tests that specify workflow run works with YAML files without .specify/ dir."""
 
-    def test_workflow_run_yaml_without_project(self, tmp_path):
-        """Running a .yml file should work without a .specify/ directory."""
+    def test_workflow_run_yaml_denied_without_operator_opt_in(self, tmp_path, monkeypatch):
+        """A local workflow file cannot authorize its own execution."""
         from typer.testing import CliRunner
         from specify_cli import app
 
+        monkeypatch.delenv("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW", raising=False)
         runner = CliRunner()
-
-        # Create a minimal workflow YAML with a shell step
         workflow_file = tmp_path / "test-workflow.yml"
         workflow_content = {
             "schema_version": "1.0",
@@ -39,15 +45,18 @@ class TestWorkflowRunWithoutProject:
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            result = runner.invoke(app, [
-                "workflow", "run", str(workflow_file),
-            ], catch_exceptions=False)
+            result = runner.invoke(
+                app,
+                ["workflow", "run", str(workflow_file)],
+                catch_exceptions=False,
+            )
         finally:
             os.chdir(old_cwd)
-        assert result.exit_code == 0, f"workflow run failed: {result.output}"
-        assert "completed" in result.output
-        assert (tmp_path / "marker.txt").exists()
-        assert (tmp_path / ".specify" / "workflows" / "runs").is_dir()
+
+        assert result.exit_code != 0
+        assert "Local workflow file execution is disabled by default" in result.output
+        assert not (tmp_path / "marker.txt").exists()
+        assert not (tmp_path / ".specify").exists()
 
     def test_workflow_run_yaml_with_tilde_and_uppercase_suffix(self, tmp_path, monkeypatch):
         """Running ~/file.YML should work without a .specify/ directory."""
@@ -89,6 +98,7 @@ class TestWorkflowRunWithoutProject:
         finally:
             os.chdir(old_cwd)
         assert result.exit_code == 0, f"workflow run failed: {result.output}"
+        assert "UNSAFE COMPATIBILITY MODE" in result.output
         assert "Status: completed" in result.output
         assert (tmp_path / "marker.txt").exists()
 

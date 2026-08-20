@@ -31,6 +31,14 @@ import yaml
 # Fixtures
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _enable_unsafe_workflow_compatibility(monkeypatch):
+    """Legacy workflow tests opt in; hardened deny tests remove these flags."""
+    monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW", "1")
+    monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_SHELL", "1")
+    monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_CUSTOM_STEPS", "1")
+
+
 @pytest.fixture
 def temp_dir():
     """Create a temporary directory for tests."""
@@ -1829,6 +1837,11 @@ class TestPromptStep:
 class TestShellStep:
     """Test the shell step type."""
 
+    @pytest.fixture(autouse=True)
+    def _operator_enables_unsafe_shell_for_compatibility_tests(self, monkeypatch):
+        """Execution tests opt in; the default-deny test removes this flag."""
+        monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_SHELL", "1")
+
     @staticmethod
     def _python_run(tmp_path, body):
         """A portable shell ``run`` that executes ``body`` with the current
@@ -1839,6 +1852,52 @@ class TestShellStep:
         script = tmp_path / "emit.py"
         script.write_text(body, encoding="utf-8")
         return f'"{sys.executable}" "{script}"'
+
+    def test_execute_denies_shell_by_default_without_side_effect(
+        self, tmp_path, monkeypatch
+    ):
+        from specify_cli.workflows.steps.shell import ShellStep
+        from specify_cli.workflows.base import StepContext, StepStatus
+
+        monkeypatch.delenv("SPECKIT_ALLOW_UNSAFE_SHELL", raising=False)
+        sentinel = tmp_path / "shell-ran"
+        step = ShellStep()
+        ctx = StepContext(project_root=str(tmp_path))
+        config = {
+            "id": "unsafe",
+            "run": self._python_run(
+                tmp_path,
+                f"from pathlib import Path; Path({str(sentinel)!r}).write_text('ran')\n",
+            ),
+        }
+
+        result = step.execute(config, ctx)
+
+        assert result.status is StepStatus.FAILED
+        assert "disabled by default" in (result.error or "")
+        assert not sentinel.exists(), "Denied shell command must not execute"
+
+    def test_enabled_shell_warns_and_does_not_inherit_arbitrary_environment(
+        self, tmp_path, monkeypatch
+    ):
+        from specify_cli.workflows.steps.shell import ShellStep
+        from specify_cli.workflows.base import StepContext, StepStatus
+
+        monkeypatch.setenv("SPECKIT_TEST_SECRET", "must-not-leak")
+        step = ShellStep()
+        config = {
+            "id": "isolated-env",
+            "run": self._python_run(
+                tmp_path,
+                "import os; print(os.getenv('SPECKIT_TEST_SECRET', 'missing'))\n",
+            ),
+        }
+
+        with pytest.warns(RuntimeWarning, match="UNSAFE COMPATIBILITY MODE"):
+            result = step.execute(config, StepContext(project_root=str(tmp_path)))
+
+        assert result.status is StepStatus.COMPLETED
+        assert result.output["stdout"].strip() == "missing"
 
     def test_execute_echo(self):
         from specify_cli.workflows.steps.shell import ShellStep
@@ -9046,6 +9105,42 @@ class TestStepCatalog:
 class TestLoadCustomSteps:
     """Test dynamic loading of custom step types from the filesystem."""
 
+    @pytest.fixture(autouse=True)
+    def _enable_unsafe_custom_steps_for_compatibility(self, monkeypatch):
+        monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_CUSTOM_STEPS", "1")
+
+    def test_custom_steps_denied_without_operator_opt_in(
+        self, project_dir, monkeypatch
+    ):
+        """Project Python cannot execute unless the operator explicitly opts in."""
+        from specify_cli.workflows import load_custom_steps, STEP_REGISTRY
+
+        monkeypatch.delenv("SPECKIT_ALLOW_UNSAFE_CUSTOM_STEPS", raising=False)
+        type_key = "denied-custom"
+        STEP_REGISTRY.pop(type_key, None)
+        step_dir = project_dir / ".specify" / "workflows" / "steps" / type_key
+        step_dir.mkdir(parents=True)
+        (step_dir / "step.yml").write_text(
+            f"step:\n  type_key: {type_key}\n", encoding="utf-8"
+        )
+        marker = project_dir / "custom-step-imported"
+        (step_dir / "__init__.py").write_text(
+            "from pathlib import Path\n"
+            "from specify_cli.workflows.base import StepBase, StepResult\n"
+            f"Path({str(marker)!r}).write_text('executed', encoding='utf-8')\n"
+            "class DeniedCustomStep(StepBase):\n"
+            f"    type_key = {type_key!r}\n"
+            "    def execute(self, config, context):\n"
+            "        return StepResult()\n",
+            encoding="utf-8",
+        )
+
+        loaded = load_custom_steps(project_dir)
+
+        assert loaded == []
+        assert type_key not in STEP_REGISTRY
+        assert not marker.exists()
+
     def test_empty_steps_dir(self, project_dir):
         from specify_cli.workflows import load_custom_steps
 
@@ -9087,7 +9182,8 @@ class TestCustomStep(StepBase):
 """
         (step_dir / "__init__.py").write_text(init_py, encoding="utf-8")
 
-        loaded = load_custom_steps(project_dir)
+        with pytest.warns(RuntimeWarning, match="UNSAFE COMPATIBILITY MODE"):
+            loaded = load_custom_steps(project_dir)
         assert "test-custom" in loaded
         assert "test-custom" in STEP_REGISTRY
 
@@ -10810,6 +10906,63 @@ steps:
         )
         assert resumed["run_id"] == rid
         assert resumed["status"] == "paused"
+
+    def test_direct_workflow_resume_requires_operator_opt_in(
+        self, project_dir, monkeypatch
+    ):
+        wf = self._write_wf(project_dir, self._WF, "direct-resume-gate")
+        first = self._invoke(project_dir, ["workflow", "run", str(wf), "--json"])
+        rid = json.loads(first.stdout)["run_id"]
+
+        monkeypatch.delenv("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW", raising=False)
+        denied = self._invoke(project_dir, ["workflow", "resume", rid, "--json"])
+        assert denied.exit_code != 0
+        assert "SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW=1" in denied.output
+        status = json.loads(
+            self._invoke(project_dir, ["workflow", "status", rid, "--json"]).stdout
+        )
+        assert status["status"] == "paused"
+        assert status["current_step_index"] == 0
+
+        monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW", "1")
+        allowed = self._invoke(project_dir, ["workflow", "resume", rid, "--json"])
+        assert allowed.exit_code == 0
+        assert "UNSAFE COMPATIBILITY MODE" in allowed.output
+        assert json.loads(allowed.stdout)["status"] == "paused"
+
+    def test_legacy_direct_workflow_first_resume_requires_operator_opt_in(
+        self, project_dir, monkeypatch
+    ):
+        """Missing legacy origin fields cannot bypass the first resume gate."""
+        wf = self._write_wf(project_dir, self._WF, "legacy-direct-resume-gate")
+        first = self._invoke(project_dir, ["workflow", "run", str(wf), "--json"])
+        rid = json.loads(first.stdout)["run_id"]
+        state_path = (
+            project_dir
+            / ".specify"
+            / "workflows"
+            / "runs"
+            / rid
+            / "state.json"
+        )
+        legacy_state = json.loads(state_path.read_text(encoding="utf-8"))
+        legacy_state.pop("installed_workflow_id", None)
+        legacy_state.pop("installed_registry_root", None)
+        state_path.write_text(json.dumps(legacy_state), encoding="utf-8")
+        before = state_path.read_bytes()
+
+        monkeypatch.delenv("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW", raising=False)
+        denied = self._invoke(project_dir, ["workflow", "resume", rid, "--json"])
+
+        assert denied.exit_code != 0
+        assert "SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW=1" in denied.output
+        assert state_path.read_bytes() == before
+
+        monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW", "1")
+        allowed = self._invoke(project_dir, ["workflow", "resume", rid, "--json"])
+        assert allowed.exit_code == 0
+        assert "UNSAFE COMPATIBILITY MODE" in allowed.output
+        assert json.loads(allowed.stdout)["status"] == "paused"
 
     def test_json_redirect_keeps_stdout_clean(self, capfd):
         # While a workflow runs under --json, steps can still write to stdout:
@@ -16293,6 +16446,58 @@ steps:
         assert result.exit_code == 0, result.output
         resumed = json.loads(result.stdout)
         assert resumed["run_id"] == run_id
+
+    def test_resume_installed_workflow_ignores_modified_persisted_copy(
+        self, project_dir, monkeypatch
+    ):
+        """Installed resume executes the enabled registry definition, not run YAML."""
+        from typer.testing import CliRunner
+        from specify_cli import app
+
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        run_id = self._install_and_run_gated(runner, app, project_dir)
+        run_copy = (
+            project_dir
+            / ".specify"
+            / "workflows"
+            / "runs"
+            / run_id
+            / "workflow.yml"
+        )
+        run_copy.write_text("not: [valid yaml", encoding="utf-8")
+
+        result = runner.invoke(app, ["workflow", "resume", run_id, "--json"])
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["run_id"] == run_id
+
+    def test_resume_rejects_forged_installed_identity(
+        self, project_dir, monkeypatch
+    ):
+        """Editable state metadata cannot bind a run to a different workflow."""
+        from typer.testing import CliRunner
+        from specify_cli import app
+
+        monkeypatch.chdir(project_dir)
+        runner = CliRunner()
+        run_id = self._install_and_run_gated(runner, app, project_dir)
+        state_path = (
+            project_dir
+            / ".specify"
+            / "workflows"
+            / "runs"
+            / run_id
+            / "state.json"
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["workflow_id"] = "forged-local-id"
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        result = runner.invoke(app, ["workflow", "resume", run_id, "--json"])
+
+        assert result.exit_code != 0
+        assert "identity does not match" in result.output
 
     def test_resume_rejects_corrupted_registry_entry(
         self, project_dir, monkeypatch

@@ -1024,6 +1024,8 @@ class WorkflowEngine:
         self,
         run_id: str,
         inputs: dict[str, Any] | None = None,
+        *,
+        trusted_definition: WorkflowDefinition | None = None,
     ) -> RunState:
         """Resume a paused or failed workflow run.
 
@@ -1038,15 +1040,33 @@ class WorkflowEngine:
             msg = f"Cannot resume run {run_id!r} with status {state.status.value!r}."
             raise ValueError(msg)
 
-        # Load the workflow definition — try the persisted copy in the
-        # run directory first so resume works even if the original
-        # source (e.g. a local YAML path) is no longer available.
-        run_dir = self.project_root / ".specify" / "workflows" / "runs" / run_id
-        run_copy = run_dir / "workflow.yml"
-        if run_copy.exists():
-            definition = WorkflowDefinition.from_yaml(run_copy)
+        if state.installed_workflow_id is not None and trusted_definition is None:
+            raise ValueError(
+                "Installed workflow resume requires a trusted registry definition"
+            )
+        if trusted_definition is not None:
+            if (
+                trusted_definition.id != state.installed_workflow_id
+                or state.workflow_id != state.installed_workflow_id
+            ):
+                raise ValueError(
+                    "Persisted installed workflow identity does not match the "
+                    "enabled registry definition"
+                )
+            definition = trusted_definition
         else:
-            definition = self.load_workflow(state.workflow_id)
+            # Direct local workflows are explicitly unsafe compatibility mode.
+            # They may use the persisted copy so resume still works when the
+            # original YAML path is gone. Installed workflows never enter this
+            # branch: the CLI supplies a fresh registry-resolved definition.
+            run_dir = (
+                self.project_root / ".specify" / "workflows" / "runs" / run_id
+            )
+            run_copy = run_dir / "workflow.yml"
+            if run_copy.exists():
+                definition = WorkflowDefinition.from_yaml(run_copy)
+            else:
+                definition = self.load_workflow(state.workflow_id)
 
         # Merge any newly-supplied inputs over the persisted ones and
         # re-validate through the same typing path as the initial run.

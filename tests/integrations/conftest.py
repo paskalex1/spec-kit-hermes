@@ -12,6 +12,7 @@ def _redirect_home(monkeypatch: pytest.MonkeyPatch, home) -> None:
 
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HERMES_HOME", str(home / ".hermes"))
     monkeypatch.setenv("XDG_CACHE_HOME", str(home / ".cache"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(home / ".local" / "share"))

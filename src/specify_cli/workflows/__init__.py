@@ -12,6 +12,8 @@ Provides:
 
 from __future__ import annotations
 
+import os
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -82,6 +84,9 @@ def load_custom_steps(project_root: Path) -> list[str]:
     Returns a list of type_keys that were successfully loaded.
     Silently skips packages that fail to import or validate.
     """
+    if os.environ.get("SPECKIT_ALLOW_UNSAFE_CUSTOM_STEPS") != "1":
+        return []
+
     import hashlib as _hashlib
     import importlib.util as _importlib_util
     import re as _re
@@ -156,6 +161,12 @@ def load_custom_steps(project_root: Path) -> list[str]:
             _sys.modules[module_name] = module
             registered = False
             try:
+                warnings.warn(
+                    "UNSAFE COMPATIBILITY MODE: importing project-controlled "
+                    "custom workflow step Python.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 spec.loader.exec_module(module)  # type: ignore[union-attr]
 
                 # Find the StepBase subclass in the module

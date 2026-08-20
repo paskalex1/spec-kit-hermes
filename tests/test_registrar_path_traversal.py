@@ -1,6 +1,7 @@
 """Tests for CommandRegistrar directory traversal guards around issue #2229."""
 
 import errno
+import os
 from pathlib import Path
 
 import pytest
@@ -132,6 +133,78 @@ class TestAliasTraversal:
         _assert_no_stray_files(tmp_path, Path(bad_alias).name.replace("/", ""))
         assert list(agents_dir.rglob("*")) == []
         assert list(prompts_dir.rglob("*")) == []
+
+
+class TestCopilotPromptCleanupTraversal:
+    """Cleanup must not trust corrupted registered command names."""
+
+    def test_unregister_does_not_delete_outside_prompts_directory(self, tmp_path):
+        project = tmp_path / "project"
+        (project / ".github" / "agents").mkdir(parents=True)
+        (project / ".github" / "prompts").mkdir(parents=True)
+        outside = project / "outside.prompt.md"
+        outside.write_text("sentinel", encoding="utf-8")
+
+        CommandRegistrar().unregister_commands(
+            {"copilot": ["../../outside"]}, project
+        )
+
+        assert outside.exists(), "Traversal cleanup deleted a file outside prompts/"
+        assert outside.read_text(encoding="utf-8") == "sentinel"
+
+    def test_unregister_rejects_symlinked_prompts_directory(self, tmp_path):
+        project = tmp_path / "project"
+        (project / ".github" / "agents").mkdir(parents=True)
+        outside = tmp_path / "outside-prompts"
+        outside.mkdir()
+        sentinel = outside / "speckit.safe.prompt.md"
+        sentinel.write_text("sentinel", encoding="utf-8")
+        (project / ".github" / "prompts").symlink_to(
+            outside, target_is_directory=True
+        )
+
+        CommandRegistrar().unregister_commands(
+            {"copilot": ["speckit.safe"]}, project
+        )
+
+        assert sentinel.exists(), "Symlinked cleanup deleted an external prompt"
+        assert sentinel.read_text(encoding="utf-8") == "sentinel"
+
+    def test_unregister_prompt_resists_ancestor_symlink_swap(
+        self, tmp_path, monkeypatch
+    ):
+        """Cleanup stays on its held directory after the public path is swapped."""
+        project = tmp_path / "project"
+        agents = project / ".github" / "agents"
+        prompts = project / ".github" / "prompts"
+        agents.mkdir(parents=True)
+        prompts.mkdir()
+        owned = prompts / "speckit.safe.prompt.md"
+        owned.write_text("owned", encoding="utf-8")
+        outside = tmp_path / "outside-prompts-race"
+        outside.mkdir()
+        sentinel = outside / owned.name
+        sentinel.write_text("sentinel", encoding="utf-8")
+        held = project / ".github" / "prompts-held"
+        original_unlink = os.unlink
+        swapped = False
+
+        def raced_unlink(path, *, dir_fd=None):
+            nonlocal swapped
+            if path == owned.name and not swapped:
+                swapped = True
+                prompts.rename(held)
+                prompts.symlink_to(outside, target_is_directory=True)
+            return original_unlink(path, dir_fd=dir_fd)
+
+        monkeypatch.setattr(os, "unlink", raced_unlink)
+        CommandRegistrar().unregister_commands(
+            {"copilot": ["speckit.safe"]}, project
+        )
+
+        assert swapped
+        assert not (held / owned.name).exists()
+        assert sentinel.read_text(encoding="utf-8") == "sentinel"
 
 
 class TestCopilotPromptTraversal:

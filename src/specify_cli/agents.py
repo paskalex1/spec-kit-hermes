@@ -8,6 +8,7 @@ command files into agent-specific directories in the correct format.
 
 import os
 import re
+import stat
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -57,6 +58,15 @@ class CommandRegistrar:
     # Populated lazily via _ensure_configs() on first use.
     AGENT_CONFIGS: dict[str, dict[str, Any]] = {}
     _configs_loaded: bool = False
+    _SECURE_CLEANUP_SUPPORTED = (
+        all(
+            function in os.supports_dir_fd
+            for function in (os.open, os.stat, os.unlink, os.rmdir)
+        )
+        and os.stat in os.supports_follow_symlinks
+        and bool(getattr(os, "O_NOFOLLOW", 0))
+        and bool(getattr(os, "O_DIRECTORY", 0))
+    )
 
     def __init__(self) -> None:
         self._ensure_configs()
@@ -576,6 +586,83 @@ class CommandRegistrar:
         base_normalized = Path(os.path.normpath(base))
         if not normalized.is_relative_to(base_normalized):
             raise ValueError(f"Output path {candidate!r} escapes directory {base!r}")
+
+    @staticmethod
+    def _unlink_project_file_no_follow(
+        project_root: Path,
+        target: Path,
+        *,
+        prune_root: Path | None = None,
+    ) -> bool:
+        """Unlink one project-owned file through held directory descriptors.
+
+        Returns ``False`` when the platform lacks the required descriptor API,
+        a path component is unsafe/missing, or the target cannot be removed.
+        Cleanup is best-effort, so failing closed leaves a stale command rather
+        than re-opening a symlink-swap window with path-based ``unlink()``.
+        """
+        if not CommandRegistrar._SECURE_CLEANUP_SUPPORTED:
+            return False
+
+        root = Path(os.path.normpath(project_root))
+        candidate = Path(os.path.normpath(target))
+        try:
+            relative = candidate.relative_to(root)
+        except ValueError:
+            return False
+        if not relative.parts or any(part in {"", ".", ".."} for part in relative.parts):
+            return False
+
+        flags = (
+            os.O_RDONLY
+            | os.O_DIRECTORY
+            | os.O_NOFOLLOW
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        opened: list[int] = []
+        directory_chain: list[tuple[int, str, int]] = []
+        try:
+            parent_fd = os.open(root, flags)
+            opened.append(parent_fd)
+            for part in relative.parts[:-1]:
+                child_fd = os.open(part, flags, dir_fd=parent_fd)
+                opened.append(child_fd)
+                directory_chain.append((parent_fd, part, child_fd))
+                parent_fd = child_fd
+
+            leaf = relative.parts[-1]
+            leaf_stat = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+            if stat.S_ISDIR(leaf_stat.st_mode):
+                return False
+            os.unlink(leaf, dir_fd=parent_fd)
+
+            if prune_root is not None and candidate.parent != prune_root:
+                if directory_chain:
+                    owner_fd, directory_name, directory_fd = directory_chain[-1]
+                    path_stat = os.stat(
+                        directory_name,
+                        dir_fd=owner_fd,
+                        follow_symlinks=False,
+                    )
+                    open_stat = os.fstat(directory_fd)
+                    if (
+                        stat.S_ISDIR(path_stat.st_mode)
+                        and path_stat.st_dev == open_stat.st_dev
+                        and path_stat.st_ino == open_stat.st_ino
+                    ):
+                        try:
+                            os.rmdir(directory_name, dir_fd=owner_fd)
+                        except OSError:
+                            pass
+            return True
+        except OSError:
+            return False
+        finally:
+            for fd in reversed(opened):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
 
     @staticmethod
     def _is_safe_command_name(name: str) -> bool:
@@ -1322,6 +1409,10 @@ class CommandRegistrar:
                     names_to_clean.append(cmd_name)
 
                 for target_dir in dirs_to_clean:
+                    try:
+                        target_dir.relative_to(project_root)
+                    except ValueError:
+                        continue
                     for name in names_to_clean:
                         cmd_file = (
                             target_dir / f"{name}{agent_config['extension']}"
@@ -1330,25 +1421,22 @@ class CommandRegistrar:
                             self._ensure_inside(cmd_file, target_dir)
                         except ValueError:
                             continue
-                        if cmd_file.exists() or cmd_file.is_symlink():
-                            cmd_file.unlink()
-                            # For SKILL.md agents each command lives in its own
-                            # subdirectory (e.g. .agents/skills/speckit-ext-cmd/
-                            # SKILL.md).  Remove the parent dir when it becomes
-                            # empty to avoid orphaned directories.
-                            parent = cmd_file.parent
-                            if parent != target_dir and parent.exists():
-                                try:
-                                    parent.rmdir()
-                                except OSError:
-                                    pass
+                        self._unlink_project_file_no_follow(
+                            project_root,
+                            cmd_file,
+                            prune_root=target_dir,
+                        )
 
                 if agent_name == "copilot":
+                    prompts_dir = project_root / ".github" / "prompts"
                     prompt_file = (
-                        project_root / ".github" / "prompts" / f"{cmd_name}.prompt.md"
+                        prompts_dir / f"{cmd_name}.prompt.md"
                     )
-                    if prompt_file.exists():
-                        prompt_file.unlink()
+                    try:
+                        self._ensure_inside(prompt_file, prompts_dir)
+                    except ValueError:
+                        continue
+                    self._unlink_project_file_no_follow(project_root, prompt_file)
 
 
 # Populate AGENT_CONFIGS after class definition.

@@ -217,7 +217,12 @@ def test_override_file_path_errors_no_fallback(tmp_path, monkeypatch):
 
 def test_override_redirects_workflow_run_file(tmp_path, monkeypatch):
     """Running a standalone YAML with SPECIFY_INIT_DIR set uses the target as the
-    project root: run artifacts land under the target, not cwd."""
+    project root: run artifacts land under the target, not cwd.
+
+    Hardened contract: a file source requires the operator opt-in
+    SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW=1, and the fixture workflow's shell
+    step additionally requires SPECKIT_ALLOW_UNSAFE_SHELL=1. Both are encoded
+    here so the test exercises the intended unsafe-compatibility mode."""
     web = _make_project(tmp_path, "web")
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
@@ -225,6 +230,8 @@ def test_override_redirects_workflow_run_file(tmp_path, monkeypatch):
     workflow_file.write_text(_workflow_yaml("override-run"), encoding="utf-8")
     monkeypatch.chdir(elsewhere)
     monkeypatch.setenv("SPECIFY_INIT_DIR", str(web))
+    monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW", "1")
+    monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_SHELL", "1")
 
     result = runner.invoke(app, ["workflow", "run", str(workflow_file)], catch_exceptions=False)
     assert result.exit_code == 0, result.output
@@ -241,6 +248,10 @@ def test_override_invalid_errors_workflow_run_file(tmp_path, monkeypatch):
     workflow_file.write_text(_workflow_yaml("x"), encoding="utf-8")
     monkeypatch.chdir(elsewhere)
     monkeypatch.setenv("SPECIFY_INIT_DIR", str(tmp_path / "does_not_exist"))
+    # Opt in past the file-source gate so the test reaches the strict
+    # override-validation path it asserts on (the gate itself is covered by
+    # test_hardened_core_stage_policy.py).
+    monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW", "1")
 
     result = runner.invoke(app, ["workflow", "run", str(workflow_file)])
     assert result.exit_code != 0
@@ -265,6 +276,9 @@ def test_override_rejects_symlinked_specify(tmp_path, monkeypatch):
     workflow_file.write_text(_workflow_yaml("symlink-run"), encoding="utf-8")
     monkeypatch.chdir(elsewhere)
     monkeypatch.setenv("SPECIFY_INIT_DIR", str(web))
+    # Opt in past the direct-file source gate so this test reaches the
+    # symlink-containment check it is specifically asserting.
+    monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW", "1")
 
     result = runner.invoke(app, ["workflow", "run", str(workflow_file)])
     assert result.exit_code != 0
@@ -287,6 +301,9 @@ def test_override_rejects_symlinked_specify_json_error_stays_off_stdout(tmp_path
     workflow_file.write_text(_workflow_yaml("symlink-json-run"), encoding="utf-8")
     monkeypatch.chdir(elsewhere)
     monkeypatch.setenv("SPECIFY_INIT_DIR", str(web))
+    # Opt in past the direct-file source gate so this test reaches the
+    # symlink-containment check it is specifically asserting.
+    monkeypatch.setenv("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW", "1")
 
     result = runner.invoke(app, ["workflow", "run", str(workflow_file), "--json"])
     assert result.exit_code != 0

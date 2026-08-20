@@ -1,4 +1,4 @@
-"""Shell step — run a local shell command."""
+"""Shell step — run an explicitly operator-enabled local shell command."""
 
 from __future__ import annotations
 
@@ -6,10 +6,33 @@ import json
 import math
 import os
 import subprocess
+import warnings
 from typing import Any
 
 from specify_cli.workflows.base import StepBase, StepContext, StepResult, StepStatus
 from specify_cli.workflows.expressions import evaluate_expression
+
+
+_INHERITED_ENV_ALLOWLIST = frozenset(
+    {
+        "COLORTERM",
+        "COMSPEC",
+        "HOME",
+        "LANG",
+        "LOGNAME",
+        "PATH",
+        "PATHEXT",
+        "SHELL",
+        "SYSTEMROOT",
+        "TEMP",
+        "TERM",
+        "TMP",
+        "TMPDIR",
+        "TZ",
+        "USER",
+        "WINDIR",
+    }
+)
 
 
 class ShellStep(StepBase):
@@ -21,6 +44,23 @@ class ShellStep(StepBase):
     type_key = "shell"
 
     def execute(self, config: dict[str, Any], context: StepContext) -> StepResult:
+        if os.environ.get("SPECKIT_ALLOW_UNSAFE_SHELL") != "1":
+            return StepResult(
+                status=StepStatus.FAILED,
+                error=(
+                    "Shell workflow execution is disabled by default. "
+                    "The operator must set SPECKIT_ALLOW_UNSAFE_SHELL=1 "
+                    "to enable this unsafe compatibility mode."
+                ),
+                output={"exit_code": -1, "stdout": "", "stderr": "shell disabled"},
+            )
+
+        warnings.warn(
+            "UNSAFE COMPATIBILITY MODE: executing a local workflow shell command.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
         run_cmd = config.get("run", "")
         if isinstance(run_cmd, str) and "{{" in run_cmd:
             run_cmd = evaluate_expression(run_cmd, context)
@@ -42,16 +82,21 @@ class ShellStep(StepBase):
                 output={"exit_code": -1, "stdout": "", "stderr": "invalid timeout"},
             )
 
-        env = {**os.environ}
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if key.upper() in _INHERITED_ENV_ALLOWLIST
+            or key.upper().startswith("LC_")
+        }
         if context.workflow_dir:
             env["SPECKIT_WORKFLOW_DIR"] = context.workflow_dir
         else:
             env.pop("SPECKIT_WORKFLOW_DIR", None)
 
-        # NOTE: shell=True is required to support pipes, redirects, and
-        # multi-command expressions in workflow YAML.  Workflow authors
-        # control commands; catalog-installed workflows should be reviewed
-        # before use (see PUBLISHING.md for security guidance).
+        # NOTE: shell=True remains only for explicit compatibility mode to
+        # support pipes, redirects, and multi-command expressions.  A project
+        # workflow cannot enable this mode; only the operator process
+        # environment can cross the gate above.
         try:
             proc = subprocess.run(  # noqa: S602 -- intentional shell=True (see NOTE above)
                 run_cmd,

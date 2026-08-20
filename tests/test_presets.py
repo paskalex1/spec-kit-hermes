@@ -3808,6 +3808,25 @@ class TestSelfTestPreset:
         manager.remove("self-test")
         assert not cmd_file.exists(), "Command not cleaned up after preset removal"
 
+    def test_self_test_removes_modified_managed_command_on_remove(self, project_dir):
+        """A registered command remains preset-owned even after a local edit."""
+        claude_dir = project_dir / ".claude" / "skills"
+        claude_dir.mkdir(parents=True)
+
+        manager = PresetManager(project_dir)
+        install_self_test_preset(manager)
+
+        cmd_file = claude_dir / "speckit-specify" / "SKILL.md"
+        assert cmd_file.exists()
+        cmd_file.write_text("user edited generated command\n", encoding="utf-8")
+
+        manager.remove("self-test")
+
+        assert not cmd_file.exists(), (
+            "Preset-owned generated commands must be removed with their owner; "
+            "user-authored commands need a separate unregistered name/path"
+        )
+
     def test_self_test_no_commands_without_agent_dirs(self, project_dir):
         """Test that no commands are registered when no agent dirs exist."""
         manager = PresetManager(project_dir)

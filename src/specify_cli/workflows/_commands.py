@@ -1321,10 +1321,23 @@ def workflow_run(
     from . import load_custom_steps
     from .engine import WorkflowEngine
 
+    err = _error_console(json_output)
     source_path = Path(source).expanduser()
     is_file_source = source_path.suffix.lower() in (".yml", ".yaml") and source_path.is_file()
 
     if is_file_source:
+        if os.environ.get("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW") != "1":
+            err.print(
+                "[red]Error:[/red] Local workflow file execution is disabled by "
+                "default. The operator must set "
+                "SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW=1 to enable this unsafe "
+                "compatibility mode."
+            )
+            raise typer.Exit(1)
+        err.print(
+            "[bold yellow]UNSAFE COMPATIBILITY MODE:[/bold yellow] executing a "
+            "local workflow file supplied outside the installed workflow registry."
+        )
         # When running a YAML file directly, use cwd as project root without
         # requiring a .specify/ project directory — unless SPECIFY_INIT_DIR
         # explicitly names a project, in which case the strict override applies.
@@ -1349,8 +1362,6 @@ def workflow_run(
             f"  \u25b8 \\[{_escape_markup(str(sid))}] "
             f"{_escape_markup(str(label))} \u2026"
         )
-
-    err = _error_console(json_output)
 
     registered_id: str | None = None
     registry_root = project_root
@@ -1489,6 +1500,7 @@ def workflow_resume(
 
     inputs = _parse_input_values(input_values, json_output=json_output)
     err = _error_console(json_output)
+    trusted_definition = None
 
     # Pre-load the persisted run state so a run started from an installed
     # workflow that has since been disabled cannot resume unchecked --
@@ -1509,7 +1521,23 @@ def workflow_resume(
         err.print(f"[red]Resume failed:[/red] {_escape_markup(str(exc))}")
         raise typer.Exit(1)
 
-    if pre_state.installed_workflow_id is not None:
+    if (
+        pre_state.installed_workflow_id is None
+        and pre_state.installed_origin_tracked
+    ):
+        if os.environ.get("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW") != "1":
+            err.print(
+                "[red]Error:[/red] Direct local workflow resume is disabled by "
+                "default. The operator must set "
+                "SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW=1 to enable this unsafe "
+                "compatibility mode."
+            )
+            raise typer.Exit(1)
+        err.print(
+            "[bold yellow]UNSAFE COMPATIBILITY MODE:[/bold yellow] resuming a "
+            "workflow originally supplied outside the installed workflow registry."
+        )
+    elif pre_state.installed_workflow_id is not None:
         try:
             owner_root = _resolve_run_owner_root(
                 pre_state.installed_registry_root, project_root
@@ -1517,14 +1545,45 @@ def workflow_resume(
         except ValueError as exc:
             err.print(f"[red]Error:[/red] {_escape_markup(str(exc))}")
             raise typer.Exit(1)
-        _require_enabled_workflow(
+        if not _require_enabled_workflow(
             owner_root, pre_state.installed_workflow_id, err
-        )
+        ):
+            err.print(
+                "[red]Error:[/red] Persisted installed workflow is no longer "
+                "present in its owning registry"
+            )
+            raise typer.Exit(1)
+        try:
+            trusted_definition = WorkflowEngine(owner_root).load_workflow(
+                pre_state.installed_workflow_id
+            )
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            err.print(
+                "[red]Error:[/red] Cannot load the enabled installed workflow "
+                f"definition: {_escape_markup(str(exc))}"
+            )
+            raise typer.Exit(1)
     elif not pre_state.installed_origin_tracked:
         if _require_enabled_workflow(
             project_root, pre_state.workflow_id, err
         ):
             pre_state.installed_workflow_id = pre_state.workflow_id
+            trusted_definition = WorkflowEngine(project_root).load_workflow(
+                pre_state.workflow_id
+            )
+        elif os.environ.get("SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW") != "1":
+            err.print(
+                "[red]Error:[/red] Legacy direct local workflow resume is "
+                "disabled by default. The operator must set "
+                "SPECKIT_ALLOW_UNSAFE_LOCAL_WORKFLOW=1 to enable this unsafe "
+                "compatibility mode."
+            )
+            raise typer.Exit(1)
+        else:
+            err.print(
+                "[bold yellow]UNSAFE COMPATIBILITY MODE:[/bold yellow] resuming "
+                "a legacy workflow outside the installed workflow registry."
+            )
         pre_state.installed_origin_tracked = True
         try:
             pre_state.save()
@@ -1534,7 +1593,11 @@ def workflow_resume(
 
     try:
         with _stdout_to_stderr_when(json_output):
-            state = engine.resume(run_id, inputs or None)
+            state = engine.resume(
+                run_id,
+                inputs or None,
+                trusted_definition=trusted_definition,
+            )
     except FileNotFoundError:
         err.print(f"[red]Error:[/red] Run not found: {run_id}")
         raise typer.Exit(1)
