@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 PLAN = (
     Path(__file__).resolve().parents[1]
@@ -24,6 +25,7 @@ REQUIRED_HEADINGS = (
     "Purpose",
     "Release identity",
     "Frozen project-worker roster",
+    "Machine-readable rollout contract",
     "Preconditions",
     "Pre-install inventory and backup",
     "Install",
@@ -32,6 +34,61 @@ REQUIRED_HEADINGS = (
     "Overall rollout gate",
     "Rollback",
 )
+EXPECTED_MACHINE_CONTRACT = {
+    "schema_version": 1,
+    "release": {
+        "superseded_tags": ["v0.16.4+hermes.1"],
+        "move_or_replace_published_tags": False,
+        "require_new_immutable_tag": True,
+    },
+    "profile_roster": PROJECT_WORKER_PROFILES,
+    "installation": {
+        "mode": "sequential_one_profile_at_a_time",
+        "stop_on_failure": True,
+        "dynamic_profile_mutation": False,
+        "non_target_profile_invariant": "byte_identical",
+    },
+    "interrupted_install": {
+        "reconcile_before_retry": True,
+        "invalid_manifest_expected_source": "qualified_wheel_disposable_render",
+        "remove_only_exact_expected_bytes": True,
+    },
+    "protected_inventory": {
+        "complete_recursive_path_set": True,
+        "lstat_without_following_symlinks": True,
+        "fields": [
+            "relative_path",
+            "object_type",
+            "mode_bits",
+            "uid",
+            "gid",
+            "size",
+            "sha256",
+            "symlink_target",
+        ],
+        "reject_added_or_removed_paths": True,
+    },
+    "rollback": {
+        "required": True,
+        "profile_order": "reverse_installation_order",
+        "verify_manifest_hash_before_delete": True,
+        "unknown_or_modified_object_action": "stop",
+    },
+    "shared_governance": {
+        "documentary_stages": [
+            "constitution",
+            "specify",
+            "clarify",
+            "plan",
+            "tasks",
+            "analyze",
+        ],
+        "implement_separate": True,
+        "junior_requires_tasks": True,
+        "junior_requires_analyze_pass": True,
+        "junior_post_analyze_smoke": True,
+    },
+}
 
 
 def _section(plan: str, heading: str) -> str:
@@ -56,6 +113,13 @@ def _validate_structure(plan: str) -> None:
     assert "If any file differs, stop" in rollback
     assert "Prove all other profiles remain byte-identical" in rollback
     assert "Generate the settled rollback manifest last" in rollback
+
+
+def _validate_machine_contract(plan: str) -> None:
+    section = _section(plan, "Machine-readable rollout contract")
+    assert section.count("```yaml\n") == 1
+    payload = section.split("```yaml\n", 1)[1].split("\n```", 1)[0]
+    assert yaml.safe_load(payload) == EXPECTED_MACHINE_CONTRACT
 
 
 def _validate_roster(plan: str) -> None:
@@ -86,8 +150,33 @@ def _validate_protected_inventory(plan: str) -> None:
     assert "all protected pre/post inventories are structurally identical" in overall
 
 
+def _validate_install_policy(plan: str) -> None:
+    install = _section(plan, "Install")
+    verification = _section(plan, "Per-profile verification")
+
+    assert "Install and verify one profile at a time" in install
+    assert "Do not continue to the next profile after any failed check" in install
+    assert "Interrupted or partial profile installation" in install
+    assert "absent or invalid" in install
+    assert "byte-identical to the expected file from the qualified wheel" in install
+    assert "all non-target profiles remain byte-identical" in verification
+
+
+def _validate_shared_governance(plan: str) -> None:
+    purpose = _section(plan, "Purpose")
+    governance = _section(plan, "Shared-governance acceptance")
+
+    assert "Skill installation is not policy enforcement by itself" in purpose
+    assert "constitution → specify → clarify → plan → tasks → analyze" in governance
+    assert "The `junior` profile must not receive an implementation task" in governance
+    assert "`analyze` has passed" in governance
+    assert "bounded post-`analyze` implementation smoke" in governance
+
+
 def test_live_rollout_plan_structure_and_immutable_release_policy():
-    _validate_structure(PLAN.read_text(encoding="utf-8"))
+    plan = PLAN.read_text(encoding="utf-8")
+    _validate_structure(plan)
+    _validate_machine_contract(plan)
 
 
 def test_live_rollout_covers_exact_project_worker_roster():
@@ -95,24 +184,11 @@ def test_live_rollout_covers_exact_project_worker_roster():
 
 
 def test_live_rollout_keeps_profile_installation_isolated_and_fail_fast():
-    plan = PLAN.read_text(encoding="utf-8")
-
-    assert "Install and verify one profile at a time" in plan
-    assert "Do not continue to the next profile after any failed check" in plan
-    assert "all non-target profiles remain byte-identical" in plan
-    assert "Interrupted or partial profile installation" in plan
-    assert "absent or invalid" in plan
-    assert "byte-identical to the expected file from the qualified wheel" in plan
+    _validate_install_policy(PLAN.read_text(encoding="utf-8"))
 
 
 def test_live_rollout_proves_shared_governance_not_only_skill_presence():
-    plan = PLAN.read_text(encoding="utf-8")
-
-    assert "Skill installation is not policy enforcement by itself" in plan
-    assert "constitution → specify → clarify → plan → tasks → analyze" in plan
-    assert "The `junior` profile must not receive an implementation task" in plan
-    assert "`analyze` has passed" in plan
-    assert "bounded post-`analyze` implementation smoke" in plan
+    _validate_shared_governance(PLAN.read_text(encoding="utf-8"))
 
 
 def test_live_rollout_records_structural_protected_invariants():
@@ -144,6 +220,45 @@ def test_live_rollout_records_structural_protected_invariants():
         (
             lambda plan: plan.replace("complete recursive path set", "selected paths"),
             _validate_protected_inventory,
+        ),
+        (
+            lambda plan: plan.replace(
+                "  stop_on_failure: true",
+                "  stop_on_failure: false",
+            ),
+            _validate_machine_contract,
+        ),
+        (
+            lambda plan: plan.replace(
+                "  move_or_replace_published_tags: false",
+                "  move_or_replace_published_tags: true",
+            ),
+            _validate_machine_contract,
+        ),
+        (
+            lambda plan: plan.replace(
+                "  reject_added_or_removed_paths: true",
+                "  reject_added_or_removed_paths: false",
+            ),
+            _validate_machine_contract,
+        ),
+        (
+            lambda plan: plan.replace(
+                "Install and verify one profile at a time",
+                "Install profiles",
+                1,
+            )
+            + "\n<!-- Install and verify one profile at a time -->\n",
+            _validate_install_policy,
+        ),
+        (
+            lambda plan: plan.replace(
+                "The `junior` profile must not receive an implementation task",
+                "Junior may implement",
+                1,
+            )
+            + "\n<!-- The `junior` profile must not receive an implementation task -->\n",
+            _validate_shared_governance,
         ),
     ],
 )

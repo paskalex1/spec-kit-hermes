@@ -41,6 +41,68 @@ Do not discover and mutate profiles dynamically during installation. Freeze and 
 
 New project-worker profiles must receive the same pinned Spec Kit release and pass the profile qualification gate before they receive project tasks.
 
+## Machine-readable rollout contract
+
+The following block is the executable policy surface used by regression tests. Narrative procedures below may add detail but must not weaken it.
+
+```yaml
+schema_version: 1
+release:
+  superseded_tags:
+    - v0.16.4+hermes.1
+  move_or_replace_published_tags: false
+  require_new_immutable_tag: true
+profile_roster:
+  default: /home/hermes/.hermes
+  analyst: /home/hermes/.hermes/profiles/analyst
+  junior: /home/hermes/.hermes/profiles/junior
+  ops: /home/hermes/.hermes/profiles/ops
+  pm: /home/hermes/.hermes/profiles/pm
+  qwen: /home/hermes/.hermes/profiles/qwen
+  researcher: /home/hermes/.hermes/profiles/researcher
+  reviewer: /home/hermes/.hermes/profiles/reviewer
+  writer: /home/hermes/.hermes/profiles/writer
+installation:
+  mode: sequential_one_profile_at_a_time
+  stop_on_failure: true
+  dynamic_profile_mutation: false
+  non_target_profile_invariant: byte_identical
+interrupted_install:
+  reconcile_before_retry: true
+  invalid_manifest_expected_source: qualified_wheel_disposable_render
+  remove_only_exact_expected_bytes: true
+protected_inventory:
+  complete_recursive_path_set: true
+  lstat_without_following_symlinks: true
+  fields:
+    - relative_path
+    - object_type
+    - mode_bits
+    - uid
+    - gid
+    - size
+    - sha256
+    - symlink_target
+  reject_added_or_removed_paths: true
+rollback:
+  required: true
+  profile_order: reverse_installation_order
+  verify_manifest_hash_before_delete: true
+  unknown_or_modified_object_action: stop
+shared_governance:
+  documentary_stages:
+    - constitution
+    - specify
+    - clarify
+    - plan
+    - tasks
+    - analyze
+  implement_separate: true
+  junior_requires_tasks: true
+  junior_requires_analyze_pass: true
+  junior_post_analyze_smoke: true
+```
+
 ## Preconditions
 
 1. The corrected rollout plan is committed.
