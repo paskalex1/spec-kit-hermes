@@ -3896,6 +3896,51 @@ class PresetManager:
                 # names from registered_commands are still unregistered.
                 pass
 
+        # Determine the exact command-file cleanup set and prove that cleanup
+        # is supportable before removing any skill or preset artifact. Native
+        # skill agents covered by registered_skills are handled by the skill
+        # cleanup path, not by descriptor-relative command-file cleanup.
+        if registered_skills and _CommandRegistrarForScope is not None:
+            skill_coverage = (
+                registered_skills if isinstance(registered_skills, dict) else {}
+            )
+            commands_to_unregister: Dict[str, List[str]] = {}
+            for agent_name, cmd_names in registered_commands.items():
+                is_native_skill_agent = (
+                    _CommandRegistrarForScope.AGENT_CONFIGS.get(
+                        agent_name, {}
+                    ).get("extension")
+                    == "/SKILL.md"
+                )
+                if not is_native_skill_agent:
+                    commands_to_unregister[agent_name] = cmd_names
+                    continue
+
+                raw_skill_names = skill_coverage.get(agent_name, [])
+                covered_skill_names = {
+                    name
+                    for name in (
+                        raw_skill_names if isinstance(raw_skill_names, list) else []
+                    )
+                    if isinstance(name, str)
+                }
+                uncovered_commands = [
+                    cmd_name
+                    for cmd_name in cmd_names
+                    if not isinstance(cmd_name, str)
+                    or covered_skill_names.isdisjoint(
+                        self._skill_names_for_command(cmd_name)
+                    )
+                ]
+                if uncovered_commands:
+                    commands_to_unregister[agent_name] = uncovered_commands
+            registered_commands = commands_to_unregister
+
+        if registered_commands and _CommandRegistrarForScope is not None:
+            _CommandRegistrarForScope.require_secure_cleanup_support(
+                registered_commands
+            )
+
         affected_skill_dirs: Dict[
             Path, tuple[Optional[str], List[str]]
         ] = {}
@@ -3958,51 +4003,6 @@ class PresetManager:
                 additional_owned_sources=override_sources,
                 restore_from_bundled_core=True,
             )
-            try:
-                from ..agents import CommandRegistrar
-            except ImportError:
-                CommandRegistrar = None
-            if CommandRegistrar is not None:
-                skill_coverage = (
-                    registered_skills
-                    if isinstance(registered_skills, dict)
-                    else {}
-                )
-                commands_to_unregister: Dict[str, List[str]] = {}
-                for agent_name, cmd_names in registered_commands.items():
-                    is_native_skill_agent = (
-                        CommandRegistrar.AGENT_CONFIGS.get(
-                            agent_name, {}
-                        ).get("extension")
-                        == "/SKILL.md"
-                    )
-                    if not is_native_skill_agent:
-                        commands_to_unregister[agent_name] = cmd_names
-                        continue
-
-                    raw_skill_names = skill_coverage.get(agent_name, [])
-                    covered_skill_names = {
-                        name
-                        for name in (
-                            raw_skill_names
-                            if isinstance(raw_skill_names, list)
-                            else []
-                        )
-                        if isinstance(name, str)
-                    }
-                    uncovered_commands = [
-                        cmd_name
-                        for cmd_name in cmd_names
-                        if not isinstance(cmd_name, str)
-                        or covered_skill_names.isdisjoint(
-                            self._skill_names_for_command(cmd_name)
-                        )
-                    ]
-                    if uncovered_commands:
-                        commands_to_unregister[agent_name] = (
-                            uncovered_commands
-                        )
-                registered_commands = commands_to_unregister
 
         # Unregister non-skill command files from AI agents.
         if registered_commands:

@@ -7,6 +7,7 @@ import yaml
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates" / "commands"
 SPECKIT_WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "speckit" / "workflow.yml"
+README = Path(__file__).resolve().parents[1] / "README.md"
 CORE_STAGE_TEMPLATES = (
     "constitution.md",
     "specify.md",
@@ -19,6 +20,35 @@ CORE_STAGE_TEMPLATES = (
 
 def test_required_core_stage_templates_remain_present():
     assert all((TEMPLATES_DIR / name).is_file() for name in CORE_STAGE_TEMPLATES)
+
+
+def test_readme_get_started_preserves_canonical_documentary_chain():
+    readme = README.read_text(encoding="utf-8")
+    get_started = readme.split("## ⚡ Get Started", 1)[1].split(
+        "## 📽️ Video Overview", 1
+    )[0]
+    commands = [
+        "/speckit.constitution",
+        "/speckit.specify",
+        "/speckit.clarify",
+        "/speckit.plan",
+        "/speckit.tasks",
+        "/speckit.analyze",
+        "/speckit.implement",
+    ]
+    positions = [get_started.index(command) for command in commands]
+    assert positions == sorted(positions)
+
+
+def test_readme_classifies_canonical_stages_as_core_commands():
+    readme = README.read_text(encoding="utf-8")
+    core = readme.split("### Core Commands", 1)[1].split("### Optional Commands", 1)[0]
+    optional = readme.split("### Optional Commands", 1)[1].split(
+        "## 🔧 Specify CLI Reference", 1
+    )[0]
+    for command in ("/speckit.clarify", "/speckit.analyze"):
+        assert command in core
+        assert command not in optional
 
 
 def test_bundled_workflow_is_exact_canonical_documentary_chain():

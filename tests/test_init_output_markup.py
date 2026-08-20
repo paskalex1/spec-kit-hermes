@@ -140,6 +140,28 @@ def test_ordinary_name_is_not_quoted(tmp_path: Path):
     assert _cd_argument(result.stdout) == "my-project"
 
 
+def test_next_steps_preserve_canonical_documentary_chain(tmp_path: Path):
+    """Onboarding must not present implementation before required SDD review."""
+    result = _init(tmp_path, "canonical-chain")
+    assert result.exit_code == 0, _strip(result.stdout)
+
+    out = _strip(result.stdout)
+    commands = [
+        "/speckit.constitution",
+        "/speckit.specify",
+        "/speckit.clarify",
+        "/speckit.plan",
+        "/speckit.tasks",
+        "/speckit.analyze",
+        "/speckit.implement",
+    ]
+    positions = [out.index(command) for command in commands]
+    assert positions == sorted(positions), out
+    assert "/speckit.clarify (optional)" not in out
+    assert "/speckit.analyze (optional)" not in out
+    assert "After completing the documentary chain" in out
+
+
 @requires_bash
 @pytest.mark.parametrize("name", ["proj v2", "proj [v2]", "my-project"])
 def test_printed_cd_command_actually_changes_directory(tmp_path: Path, name: str):

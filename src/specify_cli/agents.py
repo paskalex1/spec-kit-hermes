@@ -1366,6 +1366,21 @@ class CommandRegistrar:
                     continue
         return results
 
+    @classmethod
+    def require_secure_cleanup_support(
+        cls, registered_commands: Dict[str, List[str]]
+    ) -> None:
+        """Fail before mutation when owned command cleanup cannot be secured."""
+        cls._ensure_configs()
+        if not cls._SECURE_CLEANUP_SUPPORTED and any(
+            agent_name in cls.AGENT_CONFIGS and bool(command_names)
+            for agent_name, command_names in registered_commands.items()
+        ):
+            raise RuntimeError(
+                "This platform cannot provide secure project command cleanup; "
+                "refusing to leave registered generated commands partially removed"
+            )
+
     def unregister_commands(
         self, registered_commands: Dict[str, List[str]], project_root: Path
     ) -> None:
@@ -1380,7 +1395,7 @@ class CommandRegistrar:
             registered_commands: Dict mapping agent names to command name lists
             project_root: Path to project root
         """
-        self._ensure_configs()
+        self.require_secure_cleanup_support(registered_commands)
         for agent_name, cmd_names in registered_commands.items():
             if agent_name not in self.AGENT_CONFIGS:
                 continue

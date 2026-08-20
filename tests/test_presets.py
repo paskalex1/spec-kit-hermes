@@ -3827,6 +3827,40 @@ class TestSelfTestPreset:
             "user-authored commands need a separate unregistered name/path"
         )
 
+    def test_remove_preflights_command_cleanup_before_any_skill_mutation(
+        self, project_dir, monkeypatch
+    ):
+        """Unsupported cleanup must abort before preset-owned skills are touched."""
+        from specify_cli.agents import CommandRegistrar
+
+        manager = PresetManager(project_dir)
+        manager.registry.add(
+            "atomic-remove",
+            {
+                "version": "1.0.0",
+                "registered_commands": {"gemini": ["speckit.test"]},
+                "registered_skills": {"gemini": ["speckit-test"]},
+            },
+        )
+        pack_dir = manager.presets_dir / "atomic-remove"
+        pack_dir.mkdir(parents=True)
+        skill_cleanup_called = False
+
+        def record_skill_cleanup(*args, **kwargs):
+            nonlocal skill_cleanup_called
+            skill_cleanup_called = True
+            return {}
+
+        monkeypatch.setattr(manager, "_unregister_skills", record_skill_cleanup)
+        monkeypatch.setattr(CommandRegistrar, "_SECURE_CLEANUP_SUPPORTED", False)
+
+        with pytest.raises(RuntimeError, match="secure project command cleanup"):
+            manager.remove("atomic-remove")
+
+        assert not skill_cleanup_called
+        assert pack_dir.is_dir()
+        assert manager.registry.is_installed("atomic-remove")
+
     def test_self_test_no_commands_without_agent_dirs(self, project_dir):
         """Test that no commands are registered when no agent dirs exist."""
         manager = PresetManager(project_dir)

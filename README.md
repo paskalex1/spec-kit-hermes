@@ -106,7 +106,15 @@ Use the **`/speckit.specify`** command to describe what you want to build. Focus
 /speckit.specify Build an application that can help me organize my photos in separate photo albums. Albums are grouped by date and can be re-organized by dragging and dropping on the main page. Albums are never in other nested albums. Within each album, photos are previewed in a tile-like interface.
 ```
 
-### 5. Create a technical implementation plan
+### 5. Clarify the specification
+
+Use **`/speckit.clarify`** to resolve underspecified areas before planning.
+
+```bash
+/speckit.clarify
+```
+
+### 6. Create a technical implementation plan
 
 Use the **`/speckit.plan`** command to provide your tech stack and architecture choices.
 
@@ -114,7 +122,7 @@ Use the **`/speckit.plan`** command to provide your tech stack and architecture 
 /speckit.plan The application uses Vite with minimal number of libraries. Use vanilla HTML, CSS, and JavaScript as much as possible. Images are not uploaded anywhere and metadata is stored in a local SQLite database.
 ```
 
-### 6. Break down into tasks
+### 7. Break down into tasks
 
 Use **`/speckit.tasks`** to create an actionable task list from your implementation plan.
 
@@ -122,9 +130,17 @@ Use **`/speckit.tasks`** to create an actionable task list from your implementat
 /speckit.tasks
 ```
 
-### 7. Execute implementation
+### 8. Analyze the documentary artifacts
 
-Use **`/speckit.implement`** to execute all tasks and build your feature according to the plan.
+Use **`/speckit.analyze`** to verify consistency across the specification, plan, and tasks before implementation.
+
+```bash
+/speckit.analyze
+```
+
+### 9. Execute implementation separately
+
+After the documentary chain is complete, use **`/speckit.implement`** to execute all tasks and build your feature according to the plan.
 
 ```bash
 /speckit.implement
@@ -171,10 +187,12 @@ Essential commands for the Spec-Driven Development workflow:
 | ------------------------ | ---------------------- | -------------------------------------------------------------------------- |
 | `/speckit.constitution`  | `speckit-constitution` | Create or update project governing principles and development guidelines   |
 | `/speckit.specify`       | `speckit-specify`      | Define what you want to build (requirements and user stories)              |
+| `/speckit.clarify`       | `speckit-clarify`      | Resolve underspecified areas before `/speckit.plan`                         |
 | `/speckit.plan`          | `speckit-plan`         | Create technical implementation plans with your chosen tech stack          |
 | `/speckit.tasks`         | `speckit-tasks`        | Generate actionable task lists for implementation                          |
+| `/speckit.analyze`       | `speckit-analyze`      | Validate cross-artifact consistency before `/speckit.implement`            |
 | `/speckit.taskstoissues` | `speckit-taskstoissues`| Convert generated task lists into GitHub issues for tracking and execution |
-| `/speckit.implement`     | `speckit-implement`    | Execute all tasks to build the feature according to the plan               |
+| `/speckit.implement`     | `speckit-implement`    | Execute all tasks after the documentary chain is qualified                 |
 | `/speckit.converge`      | `speckit-converge`     | Assess the codebase against spec/plan/tasks and append remaining work as new tasks |
 
 ### Optional Commands
@@ -183,8 +201,6 @@ Additional commands for enhanced quality and validation:
 
 | Command              | Agent Skill            | Description                                                                                                                          |
 | -------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `/speckit.clarify`   | `speckit-clarify`      | Clarify underspecified areas (recommended before `/speckit.plan`; formerly `/quizme`)                                                |
-| `/speckit.analyze`   | `speckit-analyze`      | Cross-artifact consistency & coverage analysis (run after `/speckit.tasks`, before `/speckit.implement`)                             |
 | `/speckit.checklist` | `speckit-checklist`    | Generate custom quality checklists that validate requirements completeness, clarity, and consistency (like "unit tests for English") |
 
 ## 🔧 Specify CLI Reference

@@ -1071,16 +1071,24 @@ def register(app: typer.Typer) -> None:
             f"   {step_num}.2 [cyan]{_display_cmd('specify')}[/] - Create baseline specification"
         )
         steps_lines.append(
-            f"   {step_num}.3 [cyan]{_display_cmd('plan')}[/] - Create implementation plan"
+            f"   {step_num}.3 [cyan]{_display_cmd('clarify')}[/] - Resolve specification ambiguities"
         )
         steps_lines.append(
-            f"   {step_num}.4 [cyan]{_display_cmd('tasks')}[/] - Generate actionable tasks"
+            f"   {step_num}.4 [cyan]{_display_cmd('plan')}[/] - Create implementation plan"
         )
         steps_lines.append(
-            f"   {step_num}.5 [cyan]{_display_cmd('implement')}[/] - Execute implementation"
+            f"   {step_num}.5 [cyan]{_display_cmd('tasks')}[/] - Generate actionable tasks"
         )
         steps_lines.append(
-            f"   {step_num}.6 [cyan]{_display_cmd('converge')}[/] - Assess the codebase and append remaining work as tasks"
+            f"   {step_num}.6 [cyan]{_display_cmd('analyze')}[/] - Validate cross-artifact consistency"
+        )
+        steps_lines.extend(
+            [
+                "",
+                "   After completing the documentary chain:",
+                f"   {step_num}.7 [cyan]{_display_cmd('implement')}[/] - Execute implementation",
+                f"   {step_num}.8 [cyan]{_display_cmd('converge')}[/] - Assess the codebase and append remaining work as tasks",
+            ]
         )
 
         steps_panel = Panel(
@@ -1100,8 +1108,6 @@ def register(app: typer.Typer) -> None:
         enhancement_lines = [
             enhancement_intro,
             "",
-            f"○ [cyan]{_display_cmd('clarify')}[/] [bright_black](optional)[/bright_black] - Ask structured questions to de-risk ambiguous areas before planning (run before [cyan]{_display_cmd('plan')}[/] if used)",
-            f"○ [cyan]{_display_cmd('analyze')}[/] [bright_black](optional)[/bright_black] - Cross-artifact consistency & alignment report (after [cyan]{_display_cmd('tasks')}[/], before [cyan]{_display_cmd('implement')}[/])",
             f"○ [cyan]{_display_cmd('checklist')}[/] [bright_black](optional)[/bright_black] - Generate quality checklists to validate requirements completeness, clarity, and consistency (after [cyan]{_display_cmd('plan')}[/])",
         ]
         enhancements_title = (

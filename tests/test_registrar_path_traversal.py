@@ -207,6 +207,26 @@ class TestCopilotPromptCleanupTraversal:
         assert sentinel.read_text(encoding="utf-8") == "sentinel"
 
 
+class TestUnsupportedSecureCleanup:
+    """Cleanup must fail visibly before mutating when no safe primitive exists."""
+
+    def test_unregister_fails_closed_before_leaving_stale_owned_command(
+        self, tmp_path, monkeypatch
+    ):
+        project = tmp_path / "project"
+        command = project / ".gemini" / "commands" / "speckit.test.toml"
+        command.parent.mkdir(parents=True)
+        command.write_text("owned generated command", encoding="utf-8")
+        monkeypatch.setattr(CommandRegistrar, "_SECURE_CLEANUP_SUPPORTED", False)
+
+        with pytest.raises(RuntimeError, match="secure project command cleanup"):
+            CommandRegistrar().unregister_commands(
+                {"gemini": ["speckit.test"]}, project
+            )
+
+        assert command.read_text(encoding="utf-8") == "owned generated command"
+
+
 class TestCopilotPromptTraversal:
     """`write_copilot_prompt` is a public static method — guard it directly."""
 
