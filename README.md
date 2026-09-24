@@ -1,3 +1,8 @@
+<!-- Portfolio note for this fork; the upstream README follows unchanged. -->
+> **Spec Kit Hermes** is a maintained, AI-assisted adaptation of [GitHub Spec Kit](https://github.com/github/spec-kit) for Hermes workflows. The fork's Hermes-specific implementation and qualification material live on [`hardened/v0.16.4`](https://github.com/paskalex1/spec-kit-hermes/tree/hardened/v0.16.4), not on this upstream-synced `main` branch. The owner defined the integration and safety requirements and directed AI-assisted development; the upstream authors retain credit for Spec Kit. See [upstream baseline and fork provenance](https://github.com/paskalex1/spec-kit-hermes/blob/hardened/v0.16.4/docs/hardening/UPSTREAM_BASELINE.md) and [MIT license](LICENSE).
+>
+> **Scope and status:** the hardened branch includes Hermes integration, source-level tests, deterministic packaging and profile-scoped installation/rollback contracts. A new public release, installation into a Hermes profile and current LIVE operation are **not established** by this repository landing page. For upstream Specify CLI instructions, continue below; they do not install the fork's Hermes-specific branch by default.
+
 <div align="center">
     <img src="https://raw.githubusercontent.com/github/spec-kit/main/media/logo_large.webp" alt="Spec Kit Logo" width="200" height="200"/>
     <h1>🌱 Spec Kit</h1>
